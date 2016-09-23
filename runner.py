@@ -3,14 +3,15 @@
 Cassandra insert test. Create tables and run inserts on them.
 
 Usage:
-    runner.py [--mode=<m>] [--hosts=<h>] [--size=<n>] [--use-list]
+    runner.py [--mode=<m>] [--hosts=<h>] [--size=<n>] [--use-list] [--single-table]
 
 Options:
-    -h --help    Show this screen.
-    --mode=<m>   What to do (create|insert|cleanup) [default: insert].
-    --hosts=<h>  Host names [default: localhost].
-    --size=<n>   Batch size [default: 1000].
-    --use-list   Use list instead of generator.
+    -h --help       Show this screen.
+    --mode=<m>      What to do (create|insert|cleanup) [default: insert].
+    --hosts=<h>     Host names [default: localhost].
+    --size=<n>      Batch size [default: 1000].
+    --use-list      Use list instead of generator.
+    --single-table  Only insert into one table, not two in the same batch.
 """
 import pylru
 import datetime as dt
@@ -128,35 +129,42 @@ def create_event(event_type, event_id):
     }
 
 
-def create_insert_statements(session, batch_size):
+def create_insert_statements(session, batch_size, single_table):
     statements = []
     for i in range(batch_size):
-        event_type = 1 if i % 2 == 0 else 2
+        if single_table:
+            event_type = 1
+        else:
+            event_type = 1 if i % 2 == 0 else 2
         event = create_event('type{}'.format(event_type), i)
         statements.append((prep_statement(session, INSERT_EVENT, event_type), event))
     return statements
 
 
-def generate_insert_statements(session, batch_size):
+def generate_insert_statements(session, batch_size, single_table):
     i = 0
     while i < batch_size:
-        event_type = 1 if i % 2 == 0 else 2
+        if single_table:
+            event_type = 1
+        else:
+            event_type = 1 if i % 2 == 0 else 2
         event = create_event('type{}'.format(event_type), i)
         yield (prep_statement(session, INSERT_EVENT, event_type), event)
         i += 1
 
 
-def insert_events(host_names, batch_size=1000, use_list=False):
+def insert_events(host_names, batch_size=1000, use_list=False, single_table=False):
     """Prepare statements and insert into tables.
     :param host_names: list of strings
     :param batch_size: int
     :param use_list: whether to use list or generator for batch
+    :param single_table: limit inserts to the same table
     """
     session = create_session(host_names)
     if use_list:
-        statements_and_params = create_insert_statements(session, batch_size)
+        statements_and_params = create_insert_statements(session, batch_size, single_table)
     else:
-        statements_and_params = generate_insert_statements(session, batch_size)
+        statements_and_params = generate_insert_statements(session, batch_size, single_table)
     print('Inserting {} events.'.format(batch_size))
     execute_concurrent(session, statements_and_params)
     print('Inserted {} events.'.format(batch_size))
@@ -167,12 +175,13 @@ def main(args):
     host_names = args['--hosts'].split(',')
     batch_size = int(args['--size'])
     use_list = args['--use-list']
+    single_table = args['--single-table']
     if mode == 'create':
         create_all(host_names)
     elif mode == 'cleanup':
         drop_all(host_names)
     elif mode == 'insert':
-        insert_events(host_names, batch_size, use_list)
+        insert_events(host_names, batch_size, use_list, single_table)
     else:
         print(__doc__)
 
